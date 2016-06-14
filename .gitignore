@@ -1,0 +1,16 @@
+*~
+/dist*
+/.cabal-sandbox
+/cabal.sandbox.config
+/cabal.project.local
+/.stack-work
+/bench/data
+*.o
+*.hi
+*.bin
+*00-index.tar.gz
+*.html
+*#
+.#*
+/.hpc
+*.tix
