@@ -32,16 +32,20 @@ toStrictByteString = BL.toStrict . B.toLazyByteString . toBuilder
 toBuilder :: Encoding -> Builder
 toBuilder (Encoding stream) = step mempty (stream TkEnd)
    where
-    step b !tok = case tok of
+    step !b !tok = case tok of
       TkInt !i s -> step (b <> B.intDec i) s
       TkDouble !d s -> step (b <> B.doubleDec d) s
-      TkString !t s -> step (b <> text t) s
+      TkString !t s -> step (b <> string t) s
+      TkText   !t s -> step (b <> text t) s
       TkBool !v s -> step (b <> bool v) s
       TkKey  !v s -> step (b <> text v <> colon) s
+      TkKeyString  !v s -> step (b <> string v <> colon) s
       TkNull s -> step (b <> null_) s
       TkComma s -> step (b <> comma) s
+      TkListEmpty s -> step (b <> BP.primBounded (ascii2 ('[',']')) ()) s
       TkListBegin s -> step (b <> B.char8 '[') s
       TkListEnd s -> step (b <> B.char8 ']') s
+      TkObjectEmpty s -> step (b <> BP.primBounded (ascii2 ('{','}')) ()) s
       TkObjectBegin s -> step (b <> B.char8 '{') s
       TkObjectEnd s -> step (b <> B.char8 '}') s
       TkEnd -> b

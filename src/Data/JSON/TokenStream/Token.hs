@@ -4,12 +4,16 @@ module Data.JSON.TokenStream.Token
     , encodeInt
     , encodeDouble
     , encodeText
+    , encodeString
     , encodeBool
     , encodeKey
+    , encodeKeyString
     , encodeNull
     , encodeComma
+    , encodeListEmpty
     , encodeListBegin
     , encodeListEnd
+    , encodeObjectEmpty
     , encodeObjectBegin
     , encodeObjectEnd
     ) where
@@ -21,13 +25,17 @@ newtype Encoding = Encoding (Tokens -> Tokens)
 data Tokens
     = TkInt    {-# UNPACK #-} !Int    Tokens -- Scientific?
     | TkDouble {-# UNPACK #-} !Double Tokens -- same
-    | TkString {-# UNPACK #-} !Text   Tokens
+    | TkString {-# UNPACK #-} !String Tokens
+    | TkText   {-# UNPACK #-} !Text   Tokens
     | TkBool                  !Bool   Tokens
     | TkKey    {-# UNPACK #-} !Text   Tokens
+    | TkKeyString  {-# UNPACK #-} !String   Tokens
     | TkNull                          Tokens
     | TkComma                         Tokens
+    | TkListEmpty                     Tokens
     | TkListBegin                     Tokens
     | TkListEnd                       Tokens
+    | TkObjectEmpty                   Tokens
     | TkObjectBegin                   Tokens
     | TkObjectEnd                     Tokens
     | TkEnd
@@ -51,7 +59,10 @@ encodeDouble :: Double -> Encoding
 encodeDouble = Encoding . TkDouble
 
 encodeText :: Text -> Encoding
-encodeText = Encoding . TkString
+encodeText = Encoding . TkText
+
+encodeString :: String -> Encoding
+encodeString = Encoding . TkString
 
 encodeBool :: Bool -> Encoding
 encodeBool = Encoding . TkBool
@@ -59,17 +70,26 @@ encodeBool = Encoding . TkBool
 encodeKey :: Text -> Encoding
 encodeKey = Encoding . TkKey
 
+encodeKeyString :: String -> Encoding
+encodeKeyString = Encoding . TkKeyString
+
 encodeNull :: Encoding
 encodeNull = Encoding TkNull
 
 encodeComma :: Encoding
 encodeComma = Encoding TkComma
 
+encodeListEmpty :: Encoding
+encodeListEmpty = Encoding TkListEmpty
+
 encodeListBegin :: Encoding
 encodeListBegin = Encoding TkListBegin
 
 encodeListEnd :: Encoding
 encodeListEnd = Encoding TkListEnd
+
+encodeObjectEmpty :: Encoding
+encodeObjectEmpty = Encoding TkObjectEmpty
 
 encodeObjectBegin :: Encoding
 encodeObjectBegin = Encoding TkObjectBegin

@@ -7,6 +7,7 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE KindSignatures             #-}
 {-# LANGUAGE MultiParamTypeClasses      #-}
+{-# LANGUAGE OverloadedStrings          #-}
 {-# LANGUAGE PolyKinds                  #-}
 {-# LANGUAGE RecordWildCards            #-}
 {-# LANGUAGE ScopedTypeVariables        #-}
@@ -66,8 +67,8 @@ class ToStream a where
 
 object :: Pairs -> Value
 object (Pairs v) = Value $ case v of
-  Empty -> encodeObjectBegin <> encodeObjectEnd
-  Items elems -> encodeObjectBegin <> elems <> encodeObjectEnd
+  Empty -> encodeObjectEmpty
+  Items elems -> wrapObject elems
 {-# INLINE object #-}
 
 pair :: ToStream a => Text -> a -> Pairs
@@ -82,8 +83,8 @@ pairs = foldMap (uncurry pair)
 
 array :: List -> Value
 array (List v) = Value $ case v of
-  Empty -> encodeListBegin <> encodeListEnd
-  Items elems -> encodeListBegin <> elems <> encodeListEnd
+  Empty -> encodeListEmpty
+  Items elems -> wrapList elems
 {-# INLINE array #-}
 
 item :: ToStream a => a -> List
@@ -115,11 +116,10 @@ instance ToStream a => ToStream (Maybe a) where
   {-# INLINE toStream #-}
 
 instance {-# OVERLAPPABLE #-} ToStream a => ToStream [a] where
-  toStream [] = Value (encodeListBegin <> encodeListEnd)
-  toStream (x:xs) = Value ( encodeListBegin
-                          <> valueToEncoding (toStream x)
-                          <> foldr go mempty xs
-                          <> encodeListEnd)
+  toStream [] = Value encodeListEmpty
+  toStream (x:xs) = Value ( wrapList $
+                            valueToEncoding (toStream x)
+                          <> foldr go mempty xs )
     where
      go !v s = encodeComma <> valueToEncoding (toStream v) <> s
 
@@ -241,7 +241,7 @@ class ToStream1 f where
     liftToStreamList f g = listStream (liftToStream f g)
 
 listStream :: (a -> Encoding) -> [a] -> Encoding
-listStream _ [] = encodeListBegin <> encodeListEnd
+listStream _ [] = encodeListEmpty
 listStream f (x:xs) =
     encodeListBegin  <> f x
     <> foldr (\v acc -> encodeComma <> f v <> acc) encodeListEnd xs
@@ -309,7 +309,7 @@ fieldToEncoding :: (Selector s, GToStream arity a)
                 -> (p -> Encoding) -> ([p] -> Encoding)
                 -> S1 s a p -> (Encoding, Maybe Encoding)
 fieldToEncoding opts pa te tel m1 =
-  let key = encodeKey $ Text.pack (fieldLabelModifier opts $ selName m1)
+  let key = encodeKeyString (fieldLabelModifier opts $ selName m1)
       value = gToStream opts pa te tel (unM1 m1)
   in  (key <> value, Just value)
 
@@ -338,7 +338,7 @@ instance (RecordToEncoding arity f) => ConsToEncoding' arity f 'True where
       let (enc, mbVal) = recordToEncoding opts pa te tel x
       in case (unwrapUnaryRecords opts, isUn, mbVal) of
            (True, True, Just val) -> Tagged val
-           _ -> Tagged $ encodeObjectBegin <> enc <> encodeObjectEnd
+           _ -> Tagged $ wrapObject enc
 
 instance GToStream arity f => ConsToEncoding' arity f 'False where
     consToEncoding' opts pa _ te tel = Tagged . gToStream opts pa te tel
@@ -385,12 +385,12 @@ instance ( GToStream    arity a
          , Constructor c
          ) => ObjectWithSingleFieldEnc arity (C1 c a) where
     objectWithSingleFieldEnc opts pa te tel v =
-      encodeObjectBegin <>
-      encodeKey
-          (Text.pack $ constructorTagModifier opts
-                       (conName (undefined :: t c a p)))
-      <> gToStream opts pa te tel v
-      <> encodeObjectEnd
+      wrapObject $
+        encodeKeyString
+            (constructorTagModifier opts
+                         (conName (undefined :: t c a p)))
+         <> gToStream opts pa te tel v
+
 
 --------------------------------------------------------------------------------
 -- Generic toEncoding
@@ -415,7 +415,7 @@ instance ToStream1 f => GToStream One (Rec1 f) where
 
 instance GToStream arity U1 where
     -- Empty constructors are encoded to an empty array:
-    gToStream _opts _ _ _ _ = encodeListBegin <> encodeListEnd
+    gToStream _opts _ _ _ _ = encodeListEmpty
 
 instance (ConsToEncoding arity a) => GToStream arity (C1 c a) where
     -- Constructors need to be encoded differently depending on whether they're
@@ -428,9 +428,7 @@ instance ( EncodeProduct  arity a
     -- Products are encoded to an array. Here we allocate a mutable vector of
     -- the same size as the product and write the product's elements to it using
     -- 'encodeProduct':
-    gToStream opts pa te tel p = encodeListBegin
-                                 <> encodeProduct opts pa te tel p
-                                 <> encodeListEnd
+    gToStream opts pa te tel p = wrapList $ encodeProduct opts pa te tel p
 
 instance ( AllNullary           (a :+: b) allNullary
          , SumToEncoding  arity (a :+: b) allNullary
@@ -508,7 +506,7 @@ instance ( IsRecord               a isRecord
          ) => TaggedObjectEnc arity (C1 c a) where
     taggedObjectEnc opts pa tagFieldName contentsFieldName te tel v =
         wrapObject $
-           (encodeKey (Text.pack tagFieldName) <>
+           (encodeKeyString tagFieldName <>
            (coerce $ toStream (constructorTagModifier opts (conName (undefined :: t c a p))))) <>
             ((unTagged :: Tagged isRecord (Encoding) -> Encoding) .
              taggedObjectEnc' opts pa contentsFieldName te tel . unM1 $ v)
@@ -536,7 +534,7 @@ instance (RecordToEncoding arity f) => TaggedObjectEnc' arity f 'True where
 instance (GToStream arity f) => TaggedObjectEnc' arity f 'False where
     taggedObjectEnc' opts pa contentsFieldName te tel =
         Tagged . (\z -> encodeComma
-                  <> encodeKey (Text.pack contentsFieldName)
+                  <> encodeKeyString contentsFieldName
                   <> z) .
         gToStream opts pa te tel
 
@@ -562,3 +560,26 @@ instance ( GToStream    arity a
         <> encodeComma <> gToStream opts pa te tel x
 
 
+------ Instances
+
+instance ToStream Bool where
+  toStream = Value . encodeBool
+
+instance (ToStream a, ToStream b) => ToStream (a,b) where
+  toStream (a,b) = Value . wrapList $
+    coerce (toStream a) <> encodeComma <> coerce (toStream b)
+
+instance (ToStream a, ToStream b,ToStream c) => ToStream (a,b,c) where
+  toStream (a,b,c) = Value . wrapList $
+    coerce (toStream a)
+    <> encodeComma
+    <> coerce (toStream b)
+    <> encodeComma
+    <> coerce (toStream c)
+
+instance (ToStream a, ToStream b) => ToStream (Either a b) where
+  toStream v = case v of
+    Left l -> Value . wrapObject $
+              encodeKey "Left" <> encodeComma <> coerce(toStream l)
+    Right r -> Value . wrapObject $
+               encodeKey "Right" <> encodeComma <> coerce(toStream r)
