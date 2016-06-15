@@ -30,7 +30,7 @@ toStrictByteString :: Encoding -> ByteString
 toStrictByteString = BL.toStrict . B.toLazyByteString . toBuilder
 
 toBuilder :: Encoding -> Builder
-toBuilder (Encoding stream) = step mempty (stream TkEnd)
+toBuilder = \(Encoding stream) -> step mempty (stream TkEnd)
    where
     step !b !tok = case tok of
       TkInt !i s -> step (b <> B.intDec i) s

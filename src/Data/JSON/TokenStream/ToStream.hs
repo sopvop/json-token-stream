@@ -34,7 +34,6 @@ import           Data.Monoid                 ((<>))
 import           Data.Proxy
 import           Data.Tagged
 import           Data.Text                   (Text)
-import qualified Data.Text                   as Text
 
 
 import           Data.JSON.TokenStream.Token
@@ -60,6 +59,7 @@ class ToStream a where
   toStream :: a -> Encoding
   default toStream :: (Generic a, GToStream Zero (Rep a)) => a -> Encoding
   toStream = genericToStream defaultOptions
+  {-# INLINE toStream #-}
 
 object :: Pairs -> Encoding
 object (Pairs v) = case v of
@@ -115,9 +115,11 @@ instance {-# OVERLAPPABLE #-} ToStream a => ToStream [a] where
                              <> foldr go mempty xs
     where
      go !v s = encodeComma <> toStream v <> s
+  {-# INLINE toStream #-}
 
 instance {-# OVERLAPPING #-} ToStream String where
-  toStream = toStream . Text.pack
+  toStream = encodeString
+  {-# INLINE toStream #-}
 
 -- | Options that specify how to encode\/decode your datatype to\/from JSON.
 data Options = Options
@@ -554,10 +556,12 @@ instance ( GToStream    arity a
 
 instance ToStream Bool where
   toStream = encodeBool
+  {-# INLINE toStream #-}
 
 instance (ToStream a, ToStream b) => ToStream (a,b) where
   toStream (a,b) = wrapList $
     coerce (toStream a) <> encodeComma <> coerce (toStream b)
+  {-# INLINE toStream #-}
 
 instance (ToStream a, ToStream b,ToStream c) => ToStream (a,b,c) where
   toStream (a,b,c) = wrapList $
@@ -566,6 +570,7 @@ instance (ToStream a, ToStream b,ToStream c) => ToStream (a,b,c) where
     <> coerce (toStream b)
     <> encodeComma
     <> coerce (toStream c)
+  {-# INLINE toStream #-}
 
 instance (ToStream a, ToStream b) => ToStream (Either a b) where
   toStream v = case v of
@@ -573,3 +578,4 @@ instance (ToStream a, ToStream b) => ToStream (Either a b) where
               encodeKey "Left" <> encodeComma <> coerce(toStream l)
     Right r -> wrapObject $
                encodeKey "Right" <> encodeComma <> coerce(toStream r)
+  {-# INLINE toStream #-}
