@@ -22,7 +22,7 @@ data Tokens
     = TkInt    {-# UNPACK #-} !Int    Tokens -- Scientific?
     | TkDouble {-# UNPACK #-} !Double Tokens -- same
     | TkString {-# UNPACK #-} !Text   Tokens
-    | TkBool   {-# UNPACK #-} !Bool   Tokens
+    | TkBool                  !Bool   Tokens
     | TkKey    {-# UNPACK #-} !Text   Tokens
     | TkNull                          Tokens
     | TkComma                         Tokens

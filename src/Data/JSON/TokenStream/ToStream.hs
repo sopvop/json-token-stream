@@ -1,14 +1,12 @@
 {-# LANGUAGE BangPatterns               #-}
 {-# LANGUAGE DataKinds                  #-}
 {-# LANGUAGE DefaultSignatures          #-}
-{-# LANGUAGE DeriveGeneric              #-}
 {-# LANGUAGE FlexibleContexts           #-}
 {-# LANGUAGE FlexibleInstances          #-}
 {-# LANGUAGE FunctionalDependencies     #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE KindSignatures             #-}
 {-# LANGUAGE MultiParamTypeClasses      #-}
-{-# LANGUAGE OverloadedStrings          #-}
 {-# LANGUAGE PolyKinds                  #-}
 {-# LANGUAGE RecordWildCards            #-}
 {-# LANGUAGE ScopedTypeVariables        #-}
@@ -40,7 +38,6 @@ import qualified Data.Text                   as Text
 
 
 import           Data.JSON.TokenStream.Token
-import           Data.JSON.TokenStream.Write
 
 newtype Value = Value Encoding
   deriving (Monoid)
@@ -64,6 +61,8 @@ newtype List = List Items
 
 class ToStream a where
   toStream :: a -> Value
+  default toStream :: (Generic a, GToStream Zero (Rep a)) => a -> Value
+  toStream = genericToStream defaultOptions
 
 object :: Pairs -> Value
 object (Pairs v) = Value $ case v of
@@ -214,10 +213,10 @@ instance AllNullary U1 'True
 
 class    And bool1 bool2 bool3 | bool1 bool2 -> bool3
 
-instance And True  True  True
-instance And False False False
-instance And False True  False
-instance And True  False False
+instance And 'True  'True  'True
+instance And 'False 'False 'False
+instance And 'False 'True  'False
+instance And 'True  'False 'False
 
 genericToStream :: (Generic a, GToStream Zero (Rep a))
               => Options -> a -> Value
@@ -242,7 +241,7 @@ class ToStream1 f where
     liftToStreamList f g = listStream (liftToStream f g)
 
 listStream :: (a -> Encoding) -> [a] -> Encoding
-listStream f [] = encodeListBegin <> encodeListEnd
+listStream _ [] = encodeListBegin <> encodeListEnd
 listStream f (x:xs) =
     encodeListBegin  <> f x
     <> foldr (\v acc -> encodeComma <> f v <> acc) encodeListEnd xs
@@ -293,6 +292,7 @@ instance ( RecordToEncoding    arity a
        fst (recordToEncoding opts pa te tel b),
        Nothing)
 
+nullEncoding :: Encoding -> Bool
 nullEncoding (Encoding s) = s TkEnd == TkEnd
 
 instance (Selector s, GToStream arity a) => RecordToEncoding arity (S1 s a) where
@@ -333,14 +333,14 @@ instance ( IsRecord                f isRecord
         (unTagged :: Tagged isRecord Encoding -> Encoding)
       . consToEncoding' opts pa (isUnary (undefined :: f a)) te tel
 
-instance (RecordToEncoding arity f) => ConsToEncoding' arity f True where
+instance (RecordToEncoding arity f) => ConsToEncoding' arity f 'True where
     consToEncoding' opts pa isUn te tel x =
       let (enc, mbVal) = recordToEncoding opts pa te tel x
       in case (unwrapUnaryRecords opts, isUn, mbVal) of
            (True, True, Just val) -> Tagged val
            _ -> Tagged $ encodeObjectBegin <> enc <> encodeObjectEnd
 
-instance GToStream arity f => ConsToEncoding' arity f False where
+instance GToStream arity f => ConsToEncoding' arity f 'False where
     consToEncoding' opts pa _ te tel = Tagged . gToStream opts pa te tel
 
 
@@ -461,7 +461,7 @@ instance ( GetConName                     f
          , TaggedObjectEnc          arity f
          , ObjectWithSingleFieldEnc arity f
          , TwoElemArrayEnc          arity f
-         ) => SumToEncoding arity f True where
+         ) => SumToEncoding arity f 'True where
     sumToEncoding opts pa te tel
         | allNullaryToStringTag opts = Tagged . coerce . toStream .
                                        constructorTagModifier opts . getConName
@@ -470,7 +470,7 @@ instance ( GetConName                     f
 instance ( TwoElemArrayEnc          arity f
          , TaggedObjectEnc          arity f
          , ObjectWithSingleFieldEnc arity f
-         ) => SumToEncoding arity f False where
+         ) => SumToEncoding arity f 'False where
     sumToEncoding opts pa te tel = Tagged . nonAllNullarySumToEncoding opts pa te tel
 
 nonAllNullarySumToEncoding :: ( TwoElemArrayEnc          arity f
@@ -514,8 +514,10 @@ instance ( IsRecord               a isRecord
              taggedObjectEnc' opts pa contentsFieldName te tel . unM1 $ v)
 
 
+wrapObject :: Encoding -> Encoding
 wrapObject o = encodeObjectBegin <> o <> encodeObjectEnd
 
+wrapList :: Encoding -> Encoding
 wrapList o = encodeListBegin <> o <> encodeListEnd
 
 class TaggedObjectEnc' arity f isRecord where
@@ -523,15 +525,15 @@ class TaggedObjectEnc' arity f isRecord where
                      -> String -> (a -> Encoding) -> ([a] -> Encoding)
                      -> f a -> Tagged isRecord Encoding
 
-instance {-# OVERLAPPING #-} TaggedObjectEnc' arity U1 False where
+instance {-# OVERLAPPING #-} TaggedObjectEnc' arity U1 'False where
     taggedObjectEnc' _ _ _ _ _ _ = Tagged mempty
 
-instance (RecordToEncoding arity f) => TaggedObjectEnc' arity f True where
+instance (RecordToEncoding arity f) => TaggedObjectEnc' arity f 'True where
     taggedObjectEnc' opts pa _ te tel =
         Tagged . (encodeComma <>) . fst
                    . recordToEncoding opts pa te tel
 
-instance (GToStream arity f) => TaggedObjectEnc' arity f False where
+instance (GToStream arity f) => TaggedObjectEnc' arity f 'False where
     taggedObjectEnc' opts pa contentsFieldName te tel =
         Tagged . (\z -> encodeComma
                   <> encodeKey (Text.pack contentsFieldName)
@@ -559,7 +561,4 @@ instance ( GToStream    arity a
       coerce (toStream (constructorTagModifier opts (conName (undefined :: t c a p))))
         <> encodeComma <> gToStream opts pa te tel x
 
-data Foo = Foo { bar :: Int, baz :: [String] }
-  deriving (Generic, Show)
 
-xx = genericToStream defaultOptions (Foo 1 ["blah"])
