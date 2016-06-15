@@ -23,7 +23,6 @@ module Data.JSON.TokenStream.ToStream
     , array
     , item
     , items
-    , valueToEncoding
     )
      where
 
@@ -39,9 +38,6 @@ import qualified Data.Text                   as Text
 
 
 import           Data.JSON.TokenStream.Token
-
-newtype Value = Value Encoding
-  deriving (Monoid)
 
 data Items = Empty
          | Items Encoding
@@ -61,28 +57,26 @@ newtype List = List Items
   deriving (Monoid)
 
 class ToStream a where
-  toStream :: a -> Value
-  default toStream :: (Generic a, GToStream Zero (Rep a)) => a -> Value
+  toStream :: a -> Encoding
+  default toStream :: (Generic a, GToStream Zero (Rep a)) => a -> Encoding
   toStream = genericToStream defaultOptions
 
-object :: Pairs -> Value
-object (Pairs v) = Value $ case v of
+object :: Pairs -> Encoding
+object (Pairs v) = case v of
   Empty -> encodeObjectEmpty
   Items elems -> wrapObject elems
 {-# INLINE object #-}
 
 pair :: ToStream a => Text -> a -> Pairs
-pair t v = Pairs (Items (encodeKey t <> vs))
-  where
-    Value vs = toStream v
+pair t v = Pairs (Items (encodeKey t <> toStream v))
 {-# INLINE pair #-}
 
 pairs :: (Foldable f, ToStream a) => f (Text,a) -> Pairs
 pairs = foldMap (uncurry pair)
 {-# INLINE pairs #-}
 
-array :: List -> Value
-array (List v) = Value $ case v of
+array :: List -> Encoding
+array (List v) = case v of
   Empty -> encodeListEmpty
   Items elems -> wrapList elems
 {-# INLINE array #-}
@@ -94,40 +88,36 @@ item = List . Items . coerce . toStream
 items :: (Foldable f, ToStream a) => f a -> List
 items = foldMap item
 
-instance ToStream Value where
+instance ToStream Encoding where
   toStream = id
   {-# INLINE toStream #-}
 
 instance ToStream Int where
-  toStream = Value . encodeInt
+  toStream = encodeInt
   {-# INLINE toStream #-}
 
 instance ToStream Double where
-  toStream = Value . encodeDouble
+  toStream = encodeDouble
   {-# INLINE toStream #-}
 
 instance ToStream Text where
-  toStream = Value . encodeText
+  toStream = encodeText
   {-# INLINE toStream #-}
 
 instance ToStream a => ToStream (Maybe a) where
-  toStream Nothing = Value encodeNull
+  toStream Nothing = encodeNull
   toStream (Just v) = toStream v
   {-# INLINE toStream #-}
 
 instance {-# OVERLAPPABLE #-} ToStream a => ToStream [a] where
-  toStream [] = Value encodeListEmpty
-  toStream (x:xs) = Value ( wrapList $
-                            valueToEncoding (toStream x)
-                          <> foldr go mempty xs )
+  toStream [] = encodeListEmpty
+  toStream (x:xs) = wrapList $ toStream x
+                             <> foldr go mempty xs
     where
-     go !v s = encodeComma <> valueToEncoding (toStream v) <> s
+     go !v s = encodeComma <> toStream v <> s
 
 instance {-# OVERLAPPING #-} ToStream String where
   toStream = toStream . Text.pack
-
-valueToEncoding :: Value -> Encoding
-valueToEncoding = coerce
 
 -- | Options that specify how to encode\/decode your datatype to\/from JSON.
 data Options = Options
@@ -219,9 +209,9 @@ instance And 'False 'True  'False
 instance And 'True  'False 'False
 
 genericToStream :: (Generic a, GToStream Zero (Rep a))
-              => Options -> a -> Value
+              => Options -> a -> Encoding
 genericToStream opts =
-  Value . gToStream opts proxyZero undefined undefined . from
+  gToStream opts proxyZero undefined undefined . from
 
 
 class GToStream arity f where
@@ -563,14 +553,14 @@ instance ( GToStream    arity a
 ------ Instances
 
 instance ToStream Bool where
-  toStream = Value . encodeBool
+  toStream = encodeBool
 
 instance (ToStream a, ToStream b) => ToStream (a,b) where
-  toStream (a,b) = Value . wrapList $
+  toStream (a,b) = wrapList $
     coerce (toStream a) <> encodeComma <> coerce (toStream b)
 
 instance (ToStream a, ToStream b,ToStream c) => ToStream (a,b,c) where
-  toStream (a,b,c) = Value . wrapList $
+  toStream (a,b,c) = wrapList $
     coerce (toStream a)
     <> encodeComma
     <> coerce (toStream b)
@@ -579,7 +569,7 @@ instance (ToStream a, ToStream b,ToStream c) => ToStream (a,b,c) where
 
 instance (ToStream a, ToStream b) => ToStream (Either a b) where
   toStream v = case v of
-    Left l -> Value . wrapObject $
+    Left l -> wrapObject $
               encodeKey "Left" <> encodeComma <> coerce(toStream l)
-    Right r -> Value . wrapObject $
+    Right r -> wrapObject $
                encodeKey "Right" <> encodeComma <> coerce(toStream r)
